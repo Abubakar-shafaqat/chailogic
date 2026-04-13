@@ -54,7 +54,7 @@ export default function SpinnerWheel() {
     setHasSpun(false);
   }, []);
 
-  const VALID_PROMO_CODE = "discount dy do yar";
+  const VALID_PROMO_CODE = "Chailogic998";
 
   const validatePromoCode = () => {
     if (!promoCode.trim()) {
