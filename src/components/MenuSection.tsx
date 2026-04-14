@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { useState, useEffect, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 
 // Menu page images - Place your images in: public/images/menu/
@@ -26,99 +26,244 @@ const menuPages = [
   },
 ];
 
-function MenuPageCard({ page, index, onClick }: { 
-  page: typeof menuPages[0]; 
+function MenuPageCard({ page, index, onClick }: {
+  page: typeof menuPages[0];
   index: number;
   onClick: () => void;
 }) {
   return (
     <motion.div
-      className="flex-shrink-0 w-72 sm:w-80 md:w-96 cursor-pointer group"
+      className="w-full cursor-pointer group"
       initial={{ opacity: 0, y: 50 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
       transition={{ duration: 0.6, delay: index * 0.15 }}
       onClick={onClick}
     >
-      <div className="relative h-[500px] rounded-2xl overflow-hidden shadow-lg transform transition-all duration-300 group-hover:scale-105 group-hover:shadow-2xl bg-white">
-        <Image
-          src={page.src}
-          alt={page.alt}
-          fill
-          className="object-cover transition-transform duration-500 group-hover:scale-110"
-          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-        />
-        
-        {/* Overlay on hover */}
-        <div className="absolute inset-0 bg-brown/0 group-hover:bg-brown/30 transition-all duration-300 flex items-center justify-center">
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gold text-brown font-bold py-3 px-6 rounded-full text-lg">
+      {/* Card Container - Fixed size, overflow hidden */}
+      <div className="relative aspect-[3/4] w-full rounded-2xl overflow-hidden shadow-lg group-hover:shadow-2xl transition-shadow duration-500 ease-in-out bg-white">
+
+        {/* Image Wrapper - This handles the zoom */}
+        <div className="absolute inset-0 w-full h-full">
+          <Image
+            src={page.src}
+            alt={page.alt}
+            fill
+            className="object-cover transition-transform duration-500 ease-in-out group-hover:scale-110"
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+          />
+        </div>
+
+        {/* Hover Overlay - Dark gradient + text */}
+        <div className="absolute inset-0 bg-gradient-to-t from-brown/60 via-brown/0 to-brown/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 ease-in-out flex items-end justify-center pb-6">
+          <div className="bg-gold/90 backdrop-blur-sm text-brown font-semibold py-3 px-8 rounded-full text-base transform translate-y-4 group-hover:translate-y-0 transition-transform duration-500 ease-in-out">
             View Full Size
           </div>
         </div>
       </div>
-      
+
+      {/* Title Below Card */}
       <div className="mt-4 text-center">
-        <h3 className="text-lg font-semibold text-brown">{page.title}</h3>
+        <h3 className="text-lg font-semibold text-brown group-hover:text-gold transition-colors duration-300">
+          {page.title}
+        </h3>
       </div>
     </motion.div>
   );
 }
 
-// Modal Component for viewing full menu page
-function MenuPageModal({ 
-  page, 
-  onClose 
-}: { 
-  page: typeof menuPages[0] | null; 
+// Clean Gallery Modal
+function MenuPageModal({
+  currentIndex,
+  totalImages,
+  onClose,
+  onPrev,
+  onNext
+}: {
+  currentIndex: number;
+  totalImages: number;
   onClose: () => void;
+  onPrev: () => void;
+  onNext: () => void;
 }) {
-  if (!page) return null;
+  const [zoom, setZoom] = useState(1);
+  const page = menuPages[currentIndex];
+
+  // Lock body scroll
+  useEffect(() => {
+    document.body.classList.add("modal-open");
+    return () => {
+      document.body.classList.remove("modal-open");
+    };
+  }, []);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft") onPrev();
+      if (e.key === "ArrowRight") onNext();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, onPrev, onNext]);
+
+  // Reset zoom when image changes
+  useEffect(() => {
+    setZoom(1);
+  }, [currentIndex]);
+
+  // Wheel zoom
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    setZoom((prev) => {
+      const delta = e.deltaY > 0 ? -0.2 : 0.2;
+      return Math.min(Math.max(prev + delta, 1), 4);
+    });
+  }, []);
+
+  // Touch/pinch zoom
+  const [touchStartDist, setTouchStartDist] = useState(0);
+  const [initialZoom, setInitialZoom] = useState(1);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      setTouchStartDist(dist);
+      setInitialZoom(zoom);
+    }
+  }, [zoom]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 2 && touchStartDist > 0) {
+      e.preventDefault();
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const scale = dist / touchStartDist;
+      setZoom(Math.min(Math.max(initialZoom * scale, 1), 4));
+    }
+  }, [touchStartDist, initialZoom]);
+
+  const handleTouchEnd = useCallback(() => {
+    setTouchStartDist(0);
+  }, []);
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/95"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
+      transition={{ duration: 0.3 }}
       onClick={onClose}
     >
-      <motion.div
-        className="relative max-w-4xl w-full max-h-[90vh] bg-white rounded-2xl overflow-hidden shadow-2xl"
-        initial={{ scale: 0.8, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.8, opacity: 0 }}
-        transition={{ type: "spring", damping: 20 }}
-        onClick={(e) => e.stopPropagation()}
+      {/* Close Button */}
+      <button
+        onClick={onClose}
+        className="absolute top-4 right-4 z-30 w-10 h-10 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white transition-colors"
       >
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 z-10 w-10 h-10 bg-brown/80 hover:bg-brown text-cream rounded-full flex items-center justify-center transition-colors text-xl font-bold"
-        >
-          ✕
-        </button>
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
 
-        {/* Image */}
-        <div className="relative w-full h-[80vh]">
-          <Image
-            src={page.src}
-            alt={page.alt}
-            fill
-            className="object-contain"
-            sizes="100vw"
-            priority
-          />
-        </div>
+      {/* Previous Button */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onPrev(); }}
+        className="absolute left-4 md:left-6 z-30 w-10 h-10 md:w-12 md:h-12 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white transition-colors"
+      >
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+        </svg>
+      </button>
 
-        {/* Navigation hint */}
-       
+      {/* Next Button */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onNext(); }}
+        className="absolute right-4 md:right-6 z-30 w-10 h-10 md:w-12 md:h-12 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white transition-colors"
+      >
+        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
+
+      {/* Image Counter */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-white/10 backdrop-blur-sm rounded-full px-4 py-1.5 text-white text-sm font-medium">
+        {currentIndex + 1} / {totalImages}
+      </div>
+
+      {/* Image Container */}
+      <motion.div
+        className="relative w-full h-full flex items-center justify-center p-16 md:p-20"
+        onClick={(e) => e.stopPropagation()}
+        onWheel={handleWheel}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentIndex}
+            className="relative w-full h-full"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            style={{
+              width: "min(85vw, 900px)",
+              height: "min(80vh, 1200px)",
+            }}
+          >
+            <motion.div
+              className="relative w-full h-full bg-white rounded-lg overflow-hidden"
+              animate={{ scale: zoom }}
+              transition={{ type: "spring", stiffness: 400, damping: 35 }}
+            >
+              <Image
+                src={page.src}
+                alt={page.alt}
+                fill
+                className="object-contain"
+                sizes="100vw"
+                priority
+                draggable={false}
+              />
+            </motion.div>
+          </motion.div>
+        </AnimatePresence>
       </motion.div>
+
+      {/* Zoom Hint */}
+      <p className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 text-white/40 text-xs">
+        Scroll to zoom
+      </p>
     </motion.div>
   );
 }
 
 export default function MenuSection() {
-  const [selectedPage, setSelectedPage] = useState<typeof menuPages[0] | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  const handleClose = () => setSelectedId(null);
+
+  const handlePrev = () => {
+    setSelectedId((prev) => {
+      if (prev === null) return null;
+      return prev === 0 ? menuPages.length - 1 : prev - 1;
+    });
+  };
+
+  const handleNext = () => {
+    setSelectedId((prev) => {
+      if (prev === null) return null;
+      return prev === menuPages.length - 1 ? 0 : prev + 1;
+    });
+  };
 
   return (
     <section id="menu" className="py-16 md:py-24 bg-gradient-to-b from-cream to-brown/5">
@@ -143,27 +288,32 @@ export default function MenuSection() {
         </motion.p>
 
         {/* Menu Pages Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8 max-w-6xl mx-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
           {menuPages.map((page, index) => (
             <MenuPageCard
               key={page.id}
               page={page}
               index={index}
-              onClick={() => setSelectedPage(page)}
+              onClick={() => setSelectedId(index)}
             />
           ))}
         </div>
 
-        
+
       </div>
 
       {/* Full Size Modal */}
-      {selectedPage && (
-        <MenuPageModal
-          page={selectedPage}
-          onClose={() => setSelectedPage(null)}
-        />
-      )}
+      <AnimatePresence>
+        {selectedId !== null && (
+          <MenuPageModal
+            currentIndex={selectedId}
+            totalImages={menuPages.length}
+            onClose={handleClose}
+            onPrev={handlePrev}
+            onNext={handleNext}
+          />
+        )}
+      </AnimatePresence>
     </section>
   );
 }
