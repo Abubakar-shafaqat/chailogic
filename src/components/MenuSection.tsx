@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 
@@ -72,7 +72,7 @@ function MenuPageCard({ page, index, onClick }: {
   );
 }
 
-// Clean Gallery Modal
+// Full-screen Gallery Modal
 function MenuPageModal({
   currentIndex,
   totalImages,
@@ -87,7 +87,11 @@ function MenuPageModal({
   onNext: () => void;
 }) {
   const [zoom, setZoom] = useState(1);
-  const page = menuPages[currentIndex];
+  const [isZoomed, setIsZoomed] = useState(false);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
+  const touchStartX = useRef(0);
+  const lastTapRef = useRef(0);
 
   // Lock body scroll
   useEffect(() => {
@@ -97,7 +101,7 @@ function MenuPageModal({
     };
   }, []);
 
-  // Keyboard navigation
+  // Keyboard navigation (desktop)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -111,100 +115,133 @@ function MenuPageModal({
   // Reset zoom when image changes
   useEffect(() => {
     setZoom(1);
+    setIsZoomed(false);
   }, [currentIndex]);
 
-  // Wheel zoom
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    setZoom((prev) => {
-      const delta = e.deltaY > 0 ? -0.2 : 0.2;
-      return Math.min(Math.max(prev + delta, 1), 4);
-    });
-  }, []);
-
-  // Touch/pinch zoom
-  const [touchStartDist, setTouchStartDist] = useState(0);
-  const [initialZoom, setInitialZoom] = useState(1);
-
+  // Swipe navigation
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      setTouchStartDist(dist);
-      setInitialZoom(zoom);
+    // Double tap detection
+    const now = Date.now();
+    const timeSinceLastTap = now - lastTapRef.current;
+
+    if (timeSinceLastTap < 300 && timeSinceLastTap > 0) {
+      // Double tap - toggle zoom
+      e.preventDefault();
+      if (isZoomed) {
+        setZoom(1);
+        setIsZoomed(false);
+      } else {
+        setZoom(2);
+        setIsZoomed(true);
+      }
+      lastTapRef.current = 0;
+      return;
     }
-  }, [zoom]);
+    lastTapRef.current = now;
+
+    // Single touch - swipe detection
+    if (!isZoomed) {
+      touchStartX.current = e.touches[0].clientX;
+      setIsSwiping(true);
+    }
+  }, [isZoomed]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (e.touches.length === 2 && touchStartDist > 0) {
-      e.preventDefault();
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      const scale = dist / touchStartDist;
-      setZoom(Math.min(Math.max(initialZoom * scale, 1), 4));
-    }
-  }, [touchStartDist, initialZoom]);
+    if (!isSwiping || isZoomed) return;
+    const deltaX = e.touches[0].clientX - touchStartX.current;
+    setSwipeOffset(deltaX);
+  }, [isSwiping, isZoomed]);
 
   const handleTouchEnd = useCallback(() => {
-    setTouchStartDist(0);
-  }, []);
+    if (!isSwiping || isZoomed) {
+      setIsSwiping(false);
+      setSwipeOffset(0);
+      return;
+    }
+
+    const threshold = 80;
+    if (Math.abs(swipeOffset) > threshold) {
+      if (swipeOffset > 0) {
+        onPrev();
+      } else {
+        onNext();
+      }
+    }
+    setSwipeOffset(0);
+    setIsSwiping(false);
+  }, [isSwiping, isZoomed, swipeOffset, onPrev, onNext]);
+
+  // Wheel zoom (desktop)
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    if (e.deltaY < 0 && !isZoomed) {
+      setZoom(2);
+      setIsZoomed(true);
+    } else if (e.deltaY > 0 && isZoomed) {
+      setZoom(1);
+      setIsZoomed(false);
+    }
+  }, [isZoomed]);
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/95"
+      className="fixed inset-0 z-50 bg-black"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.3 }}
-      onClick={onClose}
+      transition={{ duration: 0.2 }}
     >
       {/* Close Button */}
       <button
         onClick={onClose}
-        className="absolute top-4 right-4 z-30 w-10 h-10 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white transition-colors"
+        className="absolute top-4 right-4 z-40 w-10 h-10 bg-black/50 backdrop-blur-sm rounded-full flex items-center justify-center text-white transition-colors hover:bg-black/70"
       >
         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
         </svg>
       </button>
 
-      {/* Previous Button */}
+      {/* Image Counter */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-black/50 backdrop-blur-sm rounded-full px-4 py-1.5 text-white text-sm font-medium">
+        {currentIndex + 1} / {totalImages}
+      </div>
+
+      {/* Desktop Arrow Buttons */}
       <button
         onClick={(e) => { e.stopPropagation(); onPrev(); }}
-        className="absolute left-4 md:left-6 z-30 w-10 h-10 md:w-12 md:h-12 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white transition-colors"
+        className="hidden md:flex absolute left-4 z-40 w-12 h-12 bg-black/50 hover:bg-black/70 backdrop-blur-sm rounded-full items-center justify-center text-white transition-colors"
       >
         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
         </svg>
       </button>
-
-      {/* Next Button */}
       <button
         onClick={(e) => { e.stopPropagation(); onNext(); }}
-        className="absolute right-4 md:right-6 z-30 w-10 h-10 md:w-12 md:h-12 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center text-white transition-colors"
+        className="hidden md:flex absolute right-4 z-40 w-12 h-12 bg-black/50 hover:bg-black/70 backdrop-blur-sm rounded-full items-center justify-center text-white transition-colors"
       >
         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
         </svg>
       </button>
 
-      {/* Image Counter */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 bg-white/10 backdrop-blur-sm rounded-full px-4 py-1.5 text-white text-sm font-medium">
-        {currentIndex + 1} / {totalImages}
-      </div>
-
       {/* Image Container */}
       <motion.div
-        className="relative w-full h-full flex items-center justify-center p-16 md:p-20"
-        onClick={(e) => e.stopPropagation()}
+        className="absolute inset-0 flex items-center justify-center"
+        onClick={(e) => {
+          if (isZoomed) {
+            setZoom(1);
+            setIsZoomed(false);
+          }
+        }}
         onWheel={handleWheel}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        animate={{
+          x: isSwiping ? swipeOffset : 0,
+          opacity: isSwiping ? 1 - Math.abs(swipeOffset) / 300 : 1,
+        }}
+        transition={isSwiping ? { type: "tween", ease: "linear" } : undefined}
       >
         <AnimatePresence mode="wait">
           <motion.div
@@ -213,22 +250,18 @@ function MenuPageModal({
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-            style={{
-              width: "min(85vw, 900px)",
-              height: "min(80vh, 1200px)",
-            }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
           >
             <motion.div
-              className="relative w-full h-full bg-white rounded-lg overflow-hidden"
+              className="relative w-full h-full"
               animate={{ scale: zoom }}
-              transition={{ type: "spring", stiffness: 400, damping: 35 }}
+              transition={{ type: "spring", stiffness: 400, damping: 30 }}
             >
               <Image
-                src={page.src}
-                alt={page.alt}
+                src={menuPages[currentIndex].src}
+                alt={menuPages[currentIndex].alt}
                 fill
-                className="object-contain"
+                className="object-contain select-none"
                 sizes="100vw"
                 priority
                 draggable={false}
@@ -238,10 +271,31 @@ function MenuPageModal({
         </AnimatePresence>
       </motion.div>
 
-      {/* Zoom Hint */}
-      <p className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 text-white/40 text-xs">
-        Scroll to zoom
-      </p>
+      {/* Zoom Indicator */}
+      <AnimatePresence>
+        {isZoomed && (
+          <motion.div
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 bg-black/50 backdrop-blur-sm rounded-full px-4 py-1.5 text-white/60 text-xs"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            transition={{ duration: 0.2 }}
+          >
+            Double tap to zoom out
+          </motion.div>
+        )}
+        {!isZoomed && (
+          <motion.div
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 bg-black/50 backdrop-blur-sm rounded-full px-4 py-1.5 text-white/40 text-xs"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            transition={{ duration: 0.2, delay: 1 }}
+          >
+            Swipe to navigate • Double tap to zoom
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
